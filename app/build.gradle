@@ -118,6 +118,7 @@ dependencies {
   }
   implementation deps.androidx.room
   implementation deps.androidx.room_ktx
+  implementation deps.androidx.security
 
   implementation deps.third_party.dagger
   implementation deps.third_party.sshj
