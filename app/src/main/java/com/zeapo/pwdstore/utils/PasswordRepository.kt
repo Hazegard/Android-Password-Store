@@ -9,9 +9,7 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import java.io.File
-import java.io.FileFilter
 import java.util.Comparator
-import org.apache.commons.io.filefilter.FileFilterUtils
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.lib.Repository
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
@@ -21,18 +19,14 @@ import org.eclipse.jgit.transport.URIish
 
 open class PasswordRepository protected constructor() {
 
-    @Suppress("Unused")
     enum class PasswordSortOrder(val comparator: Comparator<PasswordItem>) {
-
         FOLDER_FIRST(Comparator { p1: PasswordItem, p2: PasswordItem ->
             (p1.type + p1.name)
                     .compareTo(p2.type + p2.name, ignoreCase = true)
         }),
-
         INDEPENDENT(Comparator { p1: PasswordItem, p2: PasswordItem ->
             p1.name.compareTo(p2.name, ignoreCase = true)
         }),
-
         FILE_FIRST(Comparator { p1: PasswordItem, p2: PasswordItem ->
             (p2.type + p1.name).compareTo(p1.type + p2.name, ignoreCase = true)
         });
@@ -46,9 +40,8 @@ open class PasswordRepository protected constructor() {
     }
 
     companion object {
-
         private var repository: Repository? = null
-        private lateinit var settings: SharedPreferences
+        private var settings: SharedPreferences? = null
 
         /**
          * Returns the git repository
@@ -152,11 +145,10 @@ open class PasswordRepository protected constructor() {
 
         @JvmStatic
         fun getRepositoryDirectory(context: Context): File {
-            if (!::settings.isInitialized) {
+            if (settings == null)
                 settings = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
-            }
-            return if (settings.getBoolean("git_external", false)) {
-                val externalRepo = settings.getString("git_external_repo", null)
+            return if (settings?.getBoolean("git_external", false) == true) {
+                val externalRepo = settings?.getString("git_external_repo", null)
                 if (externalRepo != null)
                     File(externalRepo)
                 else
@@ -168,12 +160,11 @@ open class PasswordRepository protected constructor() {
 
         @JvmStatic
         fun initialize(context: Context): Repository? {
-            if (!::settings.isInitialized) {
+            if (settings == null)
                 settings = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
-            }
             val dir = getRepositoryDirectory(context)
             // uninitialize the repo if the dir does not exist or is absolutely empty
-            settings.edit {
+            settings?.edit {
                 if (!dir.exists() || !dir.isDirectory || dir.listFiles()!!.isEmpty()) {
                     putBoolean("repository_initialized", false)
                 } else {
@@ -195,16 +186,8 @@ open class PasswordRepository protected constructor() {
         fun getFilesList(path: File?): ArrayList<File> {
             if (path == null || !path.exists()) return ArrayList()
 
-            val directories = (path.listFiles(FileFilterUtils.directoryFileFilter() as FileFilter)
-                    ?: emptyArray()).toList()
-            val files = (path.listFiles(FileFilterUtils.suffixFileFilter(".gpg") as FileFilter)
-                    ?: emptyArray()).toList()
-
-            val items = ArrayList<File>()
-            items.addAll(directories)
-            items.addAll(files)
-
-            return items
+            return path.listFiles { file -> file.isDirectory || file.extension == ".gpg" }
+                    ?.toCollection(ArrayList()) ?: arrayListOf()
         }
 
         /**
@@ -216,16 +199,16 @@ open class PasswordRepository protected constructor() {
         @JvmStatic
         fun getPasswords(path: File, rootDir: File, sortOrder: PasswordSortOrder): ArrayList<PasswordItem> {
             // We need to recover the passwords then parse the files
-            val passList = getFilesList(path).also { it.sortBy { f -> f.name } }
+            var passList = getFilesList(path)
             val passwordList = ArrayList<PasswordItem>()
-            val showHiddenDirs = settings.getBoolean("show_hidden_folders", false)
+            val showHiddenDirs = settings?.getBoolean("show_hidden_folders", false) ?: false
 
             if (passList.size == 0) return passwordList
-            if (showHiddenDirs) {
-                passList.filter { !(it.isFile && it.isHidden) }.toCollection(passList.apply { clear() })
+            passList = ArrayList(if (showHiddenDirs) {
+                passList.filter { !(it.isFile && it.isHidden) }
             } else {
-                passList.filter { !it.isHidden }.toCollection(passList.apply { clear() })
-            }
+                passList.filter { !it.isHidden }
+            })
             passList.forEach { file ->
                 passwordList.add(if (file.isFile) {
                     PasswordItem.newPassword(file.name, file, rootDir)
